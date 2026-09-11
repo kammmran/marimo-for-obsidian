@@ -47,26 +47,52 @@ Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's
 - To open an existing marimo notebook, right-click a `.py` file and choose
   **Open in marimo**, or run **Open current notebook in marimo** while it's
   the active file.
-- Each open notebook runs its own local marimo server (`marimo edit`). The
-  server for a notebook is stopped when you close its pane.
+- Each open notebook runs its own local marimo server (`marimo edit`), bound
+  to `127.0.0.1` on a free port chosen by the plugin, and embedded in the
+  pane. The server is stopped when you close its pane (configurable).
+- The pane toolbar has **Reload**, **Restart server**, and **Open in
+  browser**. Reopening a notebook from a restored workspace starts a fresh
+  server automatically.
 
 ## Settings
 
-- **marimo executable path** — defaults to `marimo`. Set a full path if it's
-  not on your `PATH` (e.g. inside a virtualenv).
-- **Python executable path** — defaults to `python3`. Used to check for and
-  install the `marimo` package.
+- **marimo executable path** — leave empty to auto-detect. Set a full path
+  (e.g. `/path/to/venv/bin/marimo`) to pin a specific virtualenv.
+- **Python executable path** — leave empty to auto-detect. Used to run marimo
+  as a module (`python -m marimo`) and to install it.
+- **Reload on external edits** — passes `--watch` so marimo reloads changes
+  made in Obsidian's own editor. Off by default, because marimo warns it can
+  interfere with its auto-save.
+- **Keep servers running when a pane closes** — reopening is then instant, at
+  the cost of leaving the Python process alive.
+- **Startup timeout** — how long to wait for the server to become ready.
 - **Extra CLI arguments** — extra flags passed to `marimo edit`.
+
+## Troubleshooting
+
+If a notebook won't open, run the **Diagnose marimo setup** command (or the
+*Run diagnostics* button in settings). It shows which `marimo` and Python
+executables the plugin resolved and the full `PATH` it searched.
+
+The most common cause is that a desktop-launched Obsidian doesn't inherit
+your shell's `PATH`, so a `marimo` installed by Homebrew, `pip --user`, pyenv
+or a virtualenv is invisible to it. The plugin works around this by reading
+your login shell's `PATH` at startup and also searching the usual install
+directories; if your setup is unusual, set a full executable path in settings.
 
 ## Security notes
 
-This plugin executes local shell commands (`child_process`) to launch the
-`marimo` CLI and, when needed, `python -m pip install marimo`. This is
-required for its core function — marimo notebooks run as a local Python
-process — and no commands are ever sent to or received from the network
-beyond what the marimo/Python processes themselves do on your machine. The
-executable paths used are configurable in plugin settings and default to
-`marimo`/`python3` on your `PATH`.
+This plugin launches local processes (`child_process`) to run the `marimo`
+CLI and, when you approve it, `python -m pip install marimo`. Commands are
+spawned directly with an argument list rather than through a shell, so vault
+paths are never interpreted as shell syntax. Servers bind to `127.0.0.1`
+only. Nothing is sent over the network beyond what the marimo/Python
+processes do on your own machine. Executable paths are auto-detected and can
+be pinned in plugin settings.
+
+To find `marimo` when Obsidian is launched from the desktop, the plugin reads
+your login shell's `PATH` once at startup (`$SHELL -ilc`), which runs your
+shell's startup files.
 
 ## License
 
