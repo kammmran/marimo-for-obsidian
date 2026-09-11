@@ -44,7 +44,7 @@ Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's
 
 ## Usage
 
-- Click the play-circle icon in the ribbon (or run the **New marimo
+- Click the marimo icon in the ribbon (or run the **New marimo
   notebook** command) to create a new notebook. Give it a name and the
   plugin creates a `.py` file with a minimal marimo notebook template, then
   opens it.
