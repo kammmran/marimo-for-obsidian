@@ -5,13 +5,12 @@ on:
     tags:
       - "*"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -20,25 +19,34 @@ jobs:
         with:
           node-version: "20.x"
 
+      - name: Install dependencies
+        run: npm ci || npm install
+
       - name: Build plugin
+        run: npm run build
+
+      # Obsidian installs the version named in manifest.json from the release
+      # tagged with that exact version, so the two must agree.
+      - name: Check manifest version matches the tag
         run: |
-          npm install
-          npm run build
+          tag="${GITHUB_REF#refs/tags/}"
+          manifest="$(node -p "require('./manifest.json').version")"
+          if [ "$tag" != "$manifest" ]; then
+            echo "Tag $tag does not match manifest.json version $manifest" >&2
+            exit 1
+          fi
 
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: |
-            main.js
-            manifest.json
-            styles.css
-
-      - name: Create release
+      # The release must be published (not a draft) and carry all three files,
+      # or the community plugin validation fails.
+      - name: Publish release with plugin assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
-          gh release create "$tag" \
-            --title="$tag" \
-            --draft \
-            main.js manifest.json styles.css
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" main.js manifest.json styles.css \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" main.js manifest.json styles.css \
+              --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes
+          fi

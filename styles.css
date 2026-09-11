@@ -61,3 +61,14 @@
 	border-radius: var(--radius-s);
 	user-select: text;
 }
+
+.marimo-notebooks-modes {
+	display: flex;
+	gap: 2px;
+	margin-right: var(--size-4-2);
+}
+
+.marimo-notebooks-mode-btn.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}

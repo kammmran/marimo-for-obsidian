@@ -28,7 +28,7 @@ pane backed by a local marimo server. Each notebook can be shown two ways:
 ### Manual
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the
-   [latest release](https://github.com/kammmran/marimo-for-obsidian/releases).
+   [latest release](https://github.com/kammmran/marimo4obs/releases).
 2. Copy them into `<your vault>/.obsidian/plugins/marimo-notebooks/`.
 3. Reload Obsidian and enable "Marimo Notebooks" under Settings → Community plugins.
 

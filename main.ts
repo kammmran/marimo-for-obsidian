@@ -1,6 +1,7 @@
 import {
 	App,
 	FileSystemAdapter,
+	FileView,
 	ItemView,
 	Modal,
 	Notice,
@@ -8,15 +9,28 @@ import {
 	PluginSettingTab,
 	Setting,
 	TFile,
+	ViewStateResult,
 	WorkspaceLeaf,
 } from "obsidian";
 import { ChildProcess, execFile, spawn, spawnSync } from "child_process";
-import { createServer } from "net";
+import { connect, createServer } from "net";
 import { existsSync } from "fs";
 import { delimiter, join } from "path";
 import { homedir } from "os";
 
 const VIEW_TYPE_MARIMO = "marimo-notebooks-view";
+
+/**
+ * marimo serves a notebook two ways: `edit` is the notebook editor, `run`
+ * serves it as an app - the read-only, code-free "website" view.
+ */
+type MarimoMode = "edit" | "run";
+
+const MODE_LABEL: Record<MarimoMode, string> = { edit: "Edit", run: "App" };
+
+function isMarimoMode(value: unknown): value is MarimoMode {
+	return value === "edit" || value === "run";
+}
 
 interface MarimoNotebooksSettings {
 	marimoPath: string;
@@ -25,6 +39,9 @@ interface MarimoNotebooksSettings {
 	watchFile: boolean;
 	keepServersAlive: boolean;
 	startupTimeoutSeconds: number;
+	defaultMode: MarimoMode;
+	includeCodeInApp: boolean;
+	registerPyExtension: boolean;
 }
 
 const DEFAULT_SETTINGS: MarimoNotebooksSettings = {
@@ -34,6 +51,9 @@ const DEFAULT_SETTINGS: MarimoNotebooksSettings = {
 	watchFile: false,
 	keepServersAlive: false,
 	startupTimeoutSeconds: 60,
+	defaultMode: "edit",
+	includeCodeInApp: false,
+	registerPyExtension: true,
 };
 
 const NEW_NOTEBOOK_TEMPLATE = `import marimo
@@ -71,7 +91,13 @@ interface RunningServer {
 	process: ChildProcess;
 	url: string;
 	filePath: string;
+	mode: MarimoMode;
 	port: number;
+}
+
+/** Edit and app mode need separate marimo processes, so both key the map. */
+function serverKey(filePath: string, mode: MarimoMode): string {
+	return `${mode}:${filePath}`;
 }
 
 /**
@@ -99,6 +125,34 @@ function commonBinDirs(): string[] {
 		if (appData) dirs.push(join(appData, "Programs", "Python"));
 	}
 	return dirs;
+}
+
+/**
+ * True once something accepts a TCP connection on the port.
+ *
+ * Readiness is probed at the socket level rather than with an HTTP request:
+ * Obsidian's renderer runs on the `app://obsidian.md` origin, and marimo sends
+ * no CORS headers, so a `fetch` at its server is blocked by the browser even
+ * while the server is happily responding.
+ */
+function canConnect(port: number, timeoutMs = 1000): Promise<boolean> {
+	return new Promise((resolve) => {
+		const socket = connect({ port, host: "127.0.0.1" });
+		const finish = (ok: boolean) => {
+			socket.destroy();
+			resolve(ok);
+		};
+		socket.setTimeout(timeoutMs);
+		socket.once("connect", () => finish(true));
+		socket.once("error", () => finish(false));
+		socket.once("timeout", () => finish(false));
+	});
+}
+
+/** Picks up the "URL: http://localhost:2718" line marimo prints on startup. */
+function parseMarimoUrl(log: string): string | null {
+	const match = /URL:\s*(https?:\/\/\S+)/i.exec(log);
+	return match ? match[1].replace(/[.,)\]]+$/, "") : null;
 }
 
 /** Asks the user's login shell for its PATH, so pyenv/conda/rc-file setup is honoured. */
@@ -133,14 +187,48 @@ export default class MarimoNotebooksPlugin extends Plugin {
 
 		this.registerView(VIEW_TYPE_MARIMO, (leaf) => new MarimoView(leaf, this));
 
+		// Obsidian only opens file types it knows about, so .py files are
+		// otherwise invisible in the vault. Registering the extension makes
+		// them appear in the file explorer, in search results and in links,
+		// and makes clicking one open marimo directly.
+		if (this.settings.registerPyExtension) {
+			try {
+				this.registerExtensions(["py"], VIEW_TYPE_MARIMO);
+			} catch (e) {
+				// Another plugin already claims .py; commands still work.
+				console.warn("[Marimo Notebooks] Couldn't register the .py extension", e);
+			}
+		}
+
 		this.addCommand({
 			id: "open-in-marimo",
-			name: "Open current notebook in marimo",
+			name: "Open current notebook in marimo editor",
 			checkCallback: (checking) => {
-				const file = this.app.workspace.getActiveFile();
-				const isPy = !!file && file.extension === "py";
-				if (checking) return isPy;
-				if (file) void this.openMarimoNotebook(file);
+				const file = this.activePythonFile();
+				if (checking) return !!file;
+				if (file) void this.openMarimoNotebook(file, "edit");
+				return true;
+			},
+		});
+
+		this.addCommand({
+			id: "open-in-marimo-app",
+			name: "Open current notebook as marimo app",
+			checkCallback: (checking) => {
+				const file = this.activePythonFile();
+				if (checking) return !!file;
+				if (file) void this.openMarimoNotebook(file, "run");
+				return true;
+			},
+		});
+
+		this.addCommand({
+			id: "toggle-marimo-mode",
+			name: "Toggle between marimo editor and app",
+			checkCallback: (checking) => {
+				const view = this.app.workspace.getActiveViewOfType(MarimoView);
+				if (checking) return !!view?.file;
+				void view?.setMode(view.mode === "run" ? "edit" : "run");
 				return true;
 			},
 		});
@@ -173,11 +261,28 @@ export default class MarimoNotebooksPlugin extends Plugin {
 			this.app.workspace.on("file-menu", (menu, file) => {
 				if (file instanceof TFile && file.extension === "py") {
 					menu.addItem((item) => {
-						item.setTitle("Open in marimo")
+						item.setTitle("Open in marimo editor")
 							.setIcon("play-circle")
-							.onClick(() => void this.openMarimoNotebook(file));
+							.onClick(() => void this.openMarimoNotebook(file, "edit"));
+					});
+					menu.addItem((item) => {
+						item.setTitle("Open as marimo app")
+							.setIcon("app-window")
+							.onClick(() => void this.openMarimoNotebook(file, "run"));
 					});
 				}
+			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("rename", (file, oldPath) => {
+				if (file instanceof TFile) this.stopServersFor(oldPath);
+			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("delete", (file) => {
+				if (file instanceof TFile) this.stopServersFor(file.path);
 			})
 		);
 
@@ -190,6 +295,18 @@ export default class MarimoNotebooksPlugin extends Plugin {
 
 	onunload() {
 		this.stopAllServers();
+	}
+
+	/** The active file when it is a Python notebook, else null. */
+	private activePythonFile(): TFile | null {
+		const file = this.app.workspace.getActiveFile();
+		return file && file.extension === "py" ? file : null;
+	}
+
+	/** Stops every mode's server for one notebook. */
+	stopServersFor(filePath: string) {
+		this.stopServer(filePath, "edit");
+		this.stopServer(filePath, "run");
 	}
 
 	stopAllServers() {
@@ -428,31 +545,45 @@ export default class MarimoNotebooksPlugin extends Plugin {
 		});
 	}
 
-	async openMarimoNotebook(file: TFile) {
-		let server = this.servers.get(file.path);
-		if (!server) {
-			if (!(await this.ensureMarimoAvailable())) return;
-			const notice = new Notice(`Starting marimo for ${file.name}...`, 0);
-			try {
-				server = await this.startServer(file);
-			} catch (e) {
-				notice.hide();
-				const message = e instanceof Error ? e.message : String(e);
-				const log = this.startupLog.get(file.path) || "";
-				console.error("[Marimo Notebooks] " + message + "\n" + log);
-				new ErrorModal(this.app, "Couldn't start marimo", message, log).open();
-				return;
-			}
-			notice.hide();
-		}
-
+	async openMarimoNotebook(file: TFile, mode: MarimoMode = this.settings.defaultMode) {
 		const leaf = this.app.workspace.getLeaf("tab");
+		// The view starts the server itself, so notebooks opened from the file
+		// explorer take exactly the same path as ones opened from a command.
 		await leaf.setViewState({
 			type: VIEW_TYPE_MARIMO,
 			active: true,
-			state: { filePath: file.path, url: server.url },
+			state: { file: file.path, mode },
 		});
 		await this.app.workspace.revealLeaf(leaf);
+	}
+
+	/** Returns the server for this notebook and mode, starting it if needed. */
+	async ensureServer(filePath: string, mode: MarimoMode): Promise<RunningServer | null> {
+		const existing = this.servers.get(serverKey(filePath, mode));
+		if (existing) return existing;
+
+		const file = this.app.vault.getAbstractFileByPath(filePath);
+		if (!(file instanceof TFile)) {
+			new Notice(`${filePath} no longer exists.`);
+			return null;
+		}
+		if (!(await this.ensureMarimoAvailable())) return null;
+
+		const notice = new Notice(
+			`Starting marimo ${mode === "run" ? "app" : "editor"} for ${file.name}...`,
+			0
+		);
+		try {
+			return await this.startServer(file, mode);
+		} catch (e) {
+			const message = e instanceof Error ? e.message : String(e);
+			const log = this.startupLog.get(serverKey(filePath, mode)) || "";
+			console.error("[Marimo Notebooks] " + message + "\n" + log);
+			new ErrorModal(this.app, "Couldn't start marimo", message, log).open();
+			return null;
+		} finally {
+			notice.hide();
+		}
 	}
 
 	/** Reserves a free TCP port by briefly binding one. */
@@ -469,28 +600,40 @@ export default class MarimoNotebooksPlugin extends Plugin {
 		});
 	}
 
-	private async waitForHealthy(port: number, deadline: number, proc: ChildProcess) {
-		const url = `http://127.0.0.1:${port}/health`;
+	/**
+	 * Waits until marimo is serving, and returns the URL to embed. marimo
+	 * falls back to another port when the requested one is taken, so its own
+	 * printed URL wins over the port we asked for.
+	 */
+	private async waitForReady(
+		port: number,
+		deadline: number,
+		proc: ChildProcess,
+		currentLog: () => string
+	): Promise<string> {
 		for (;;) {
 			if (proc.exitCode !== null || proc.signalCode !== null) {
 				throw new Error(`marimo exited before it finished starting (code ${proc.exitCode}).`);
 			}
+
+			const announced = parseMarimoUrl(currentLog());
+			const announcedPort = announced ? Number(new URL(announced).port) : NaN;
+			const target = Number.isFinite(announcedPort) && announcedPort > 0 ? announcedPort : port;
+			if (await canConnect(target)) {
+				return `http://127.0.0.1:${target}`;
+			}
+
 			if (Date.now() > deadline) {
 				throw new Error(
 					`marimo didn't become ready within ${this.settings.startupTimeoutSeconds}s.`
 				);
 			}
-			try {
-				const res = await fetch(url, { method: "GET" });
-				if (res.ok) return;
-			} catch {
-				/* not listening yet */
-			}
 			await new Promise((r) => window.setTimeout(r, 300));
 		}
 	}
 
-	private async startServer(file: TFile): Promise<RunningServer> {
+	private async startServer(file: TFile, mode: MarimoMode): Promise<RunningServer> {
+		const key = serverKey(file.path, mode);
 		const launcher = this.resolveLauncher();
 		if (!launcher) throw new Error("marimo isn't available. Run \"Diagnose marimo setup\".");
 
@@ -500,16 +643,19 @@ export default class MarimoNotebooksPlugin extends Plugin {
 
 		const args = [
 			...launcher.baseArgs,
-			"edit",
+			// "edit" opens the notebook editor; "run" serves it as an app.
+			mode,
 			absolutePath,
 			"--headless",
 			"--no-token",
-			"--skip-update-check",
+			// `marimo run` has no --skip-update-check; it is an edit-only flag.
+			...(mode === "edit" ? ["--skip-update-check"] : []),
 			"--host",
 			"127.0.0.1",
 			"-p",
 			String(port),
 			...(this.settings.watchFile ? ["--watch"] : []),
+			...(mode === "run" && this.settings.includeCodeInApp ? ["--include-code"] : []),
 			...this.settings.extraArgs.split(/\s+/).filter(Boolean),
 		];
 
@@ -525,7 +671,7 @@ export default class MarimoNotebooksPlugin extends Plugin {
 		const record = (chunk: Buffer) => {
 			log += chunk.toString();
 			if (log.length > 20000) log = log.slice(-20000);
-			this.startupLog.set(file.path, log);
+			this.startupLog.set(key, log);
 		};
 		proc.stdout?.on("data", record);
 		proc.stderr?.on("data", record);
@@ -541,12 +687,16 @@ export default class MarimoNotebooksPlugin extends Plugin {
 		});
 
 		proc.on("exit", () => {
-			this.servers.delete(file.path);
+			this.servers.delete(key);
 		});
 
 		const deadline = Date.now() + Math.max(10, this.settings.startupTimeoutSeconds) * 1000;
+		let url: string;
 		try {
-			await Promise.race([this.waitForHealthy(port, deadline, proc), spawnFailure]);
+			url = await Promise.race([
+				this.waitForReady(port, deadline, proc, () => log),
+				spawnFailure,
+			]);
 		} catch (e) {
 			this.killProcess(proc);
 			const detail = log.trim();
@@ -558,56 +708,45 @@ export default class MarimoNotebooksPlugin extends Plugin {
 
 		const server: RunningServer = {
 			process: proc,
-			url: `http://127.0.0.1:${port}`,
+			url,
 			filePath: file.path,
-			port,
+			mode,
+			// marimo may have landed on a different port than the one asked for.
+			port: Number(new URL(url).port) || port,
 		};
-		this.servers.set(file.path, server);
-		this.startupLog.delete(file.path);
+		this.servers.set(key, server);
+		this.startupLog.delete(key);
 		return server;
 	}
 
-	getServer(filePath: string): RunningServer | undefined {
-		return this.servers.get(filePath);
+	getServer(filePath: string, mode: MarimoMode): RunningServer | undefined {
+		return this.servers.get(serverKey(filePath, mode));
 	}
 
-	/** Called when a marimo pane closes. */
-	releaseServer(filePath: string) {
+	/** Called when a marimo pane closes or switches mode. */
+	releaseServer(filePath: string, mode: MarimoMode, except?: MarimoView) {
 		if (this.settings.keepServersAlive) return;
-		// Another pane may still be showing the same notebook.
+		// Another pane may still be showing the same notebook in the same mode.
 		const stillOpen = this.app.workspace
 			.getLeavesOfType(VIEW_TYPE_MARIMO)
-			.some((leaf) => (leaf.view as MarimoView).filePath === filePath);
+			.map((leaf) => leaf.view)
+			.some(
+				(view) =>
+					view instanceof MarimoView &&
+					view !== except &&
+					view.file?.path === filePath &&
+					view.mode === mode
+			);
 		if (stillOpen) return;
-		this.stopServer(filePath);
+		this.stopServer(filePath, mode);
 	}
 
-	stopServer(filePath: string) {
-		const server = this.servers.get(filePath);
+	stopServer(filePath: string, mode: MarimoMode) {
+		const key = serverKey(filePath, mode);
+		const server = this.servers.get(key);
 		if (server) {
 			this.killProcess(server.process);
-			this.servers.delete(filePath);
-		}
-	}
-
-	async restartServer(filePath: string): Promise<RunningServer | null> {
-		this.stopServer(filePath);
-		const file = this.app.vault.getAbstractFileByPath(filePath);
-		if (!(file instanceof TFile)) {
-			new Notice(`${filePath} no longer exists.`);
-			return null;
-		}
-		try {
-			return await this.startServer(file);
-		} catch (e) {
-			const message = e instanceof Error ? e.message : String(e);
-			new ErrorModal(
-				this.app,
-				"Couldn't restart marimo",
-				message,
-				this.startupLog.get(filePath) || ""
-			).open();
-			return null;
+			this.servers.delete(key);
 		}
 	}
 
@@ -656,15 +795,17 @@ export default class MarimoNotebooksPlugin extends Plugin {
 	}
 }
 
-class MarimoView extends ItemView {
+class MarimoView extends FileView {
 	plugin: MarimoNotebooksPlugin;
-	filePath = "";
+	mode: MarimoMode;
 	url = "";
 	private iframe: HTMLIFrameElement | null = null;
+	private starting = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MarimoNotebooksPlugin) {
 		super(leaf);
 		this.plugin = plugin;
+		this.mode = plugin.settings.defaultMode;
 		this.navigation = true;
 	}
 
@@ -672,32 +813,75 @@ class MarimoView extends ItemView {
 		return VIEW_TYPE_MARIMO;
 	}
 
+	/** Claims .py so Obsidian routes Python files here. */
+	canAcceptExtension(extension: string) {
+		return extension === "py";
+	}
+
 	getDisplayText() {
-		return this.filePath ? `marimo: ${this.filePath.split("/").pop()}` : "marimo";
+		if (!this.file) return "marimo";
+		return this.mode === "run" ? `${this.file.basename} (app)` : this.file.basename;
 	}
 
 	getIcon() {
-		return "play-circle";
+		return this.mode === "run" ? "app-window" : "play-circle";
 	}
 
-	async setState(state: unknown) {
-		const s = (state || {}) as { filePath?: string; url?: string };
-		this.filePath = s.filePath || "";
-		this.url = s.url || "";
+	async setState(state: unknown, result: ViewStateResult) {
+		const mode = (state as { mode?: unknown } | null)?.mode;
+		if (isMarimoMode(mode)) this.mode = mode;
+		// FileView.setState loads state.file, which calls onLoadFile below.
+		await super.setState(state, result);
+	}
 
-		// Restoring a saved workspace: the old server is gone, start a new one.
-		if (this.filePath && !this.plugin.getServer(this.filePath)) {
-			const server = await this.plugin.restartServer(this.filePath);
-			if (server) this.url = server.url;
-			else this.url = "";
-		} else if (this.filePath) {
-			this.url = this.plugin.getServer(this.filePath)!.url;
-		}
+	getState(): Record<string, unknown> {
+		return { ...super.getState(), mode: this.mode };
+	}
+
+	async onLoadFile(file: TFile) {
+		await this.launch();
+	}
+
+	async onUnloadFile(file: TFile) {
+		this.iframe = null;
+		this.url = "";
+		this.plugin.releaseServer(file.path, this.mode, this);
+	}
+
+	async onRename(file: TFile) {
+		await super.onRename(file);
+		// marimo was started against the old path, so serve the new one.
+		await this.launch();
+	}
+
+	/** Switches between the notebook editor and the app view. */
+	async setMode(mode: MarimoMode) {
+		if (mode === this.mode || !this.file) return;
+		const previous = this.mode;
+		this.mode = mode;
+		this.plugin.releaseServer(this.file.path, previous, this);
+		// Refresh the tab title/icon, which are derived from the mode.
+		(this.leaf as WorkspaceLeaf & { updateHeader?: () => void }).updateHeader?.();
+		this.app.workspace.requestSaveLayout();
+		await this.launch();
+	}
+
+	private async launch() {
+		const file = this.file;
+		const mode = this.mode;
+		if (!file) return;
+		this.starting = true;
+		this.url = "";
 		this.render();
-	}
 
-	getState() {
-		return { filePath: this.filePath, url: this.url };
+		const server = await this.plugin.ensureServer(file.path, mode);
+
+		// The pane may have been closed, switched mode, or pointed at another
+		// notebook while the server was starting; that launch owns the render.
+		if (this.file !== file || this.mode !== mode) return;
+		this.starting = false;
+		this.url = server ? server.url : "";
+		this.render();
 	}
 
 	render() {
@@ -706,8 +890,24 @@ class MarimoView extends ItemView {
 		container.addClass("marimo-notebooks-view-container");
 
 		const bar = container.createDiv({ cls: "marimo-notebooks-toolbar" });
-		bar.createSpan({ cls: "marimo-notebooks-path", text: this.filePath });
+		bar.createSpan({ cls: "marimo-notebooks-path", text: this.file?.path ?? "" });
 		const actions = bar.createDiv({ cls: "marimo-notebooks-actions" });
+
+		const modeSwitch = actions.createDiv({ cls: "marimo-notebooks-modes" });
+		for (const mode of ["edit", "run"] as MarimoMode[]) {
+			const btn = modeSwitch.createEl("button", {
+				text: MODE_LABEL[mode],
+				cls: "marimo-notebooks-btn marimo-notebooks-mode-btn",
+			});
+			btn.setAttribute(
+				"aria-label",
+				mode === "run"
+					? "Serve this notebook as an app (no code)"
+					: "Open the marimo notebook editor"
+			);
+			if (mode === this.mode) btn.addClass("is-active");
+			btn.addEventListener("click", () => void this.setMode(mode));
+		}
 
 		const button = (label: string, title: string, onClick: () => void) => {
 			const btn = actions.createEl("button", { text: label, cls: "marimo-notebooks-btn" });
@@ -716,16 +916,14 @@ class MarimoView extends ItemView {
 			return btn;
 		};
 
-		button("Reload", "Reload the marimo editor", () => {
+		button("Reload", "Reload the marimo view", () => {
 			if (this.iframe) this.iframe.src = this.url;
 		});
 		button("Restart server", "Restart the marimo server for this notebook", () => {
 			void (async () => {
-				const server = await this.plugin.restartServer(this.filePath);
-				if (server) {
-					this.url = server.url;
-					this.render();
-				}
+				if (!this.file) return;
+				this.plugin.stopServer(this.file.path, this.mode);
+				await this.launch();
 			})();
 		});
 		button("Open in browser", "Open this notebook in your default browser", () => {
@@ -735,7 +933,9 @@ class MarimoView extends ItemView {
 		if (!this.url) {
 			container.createDiv({
 				cls: "marimo-notebooks-empty",
-				text: "marimo isn't running for this notebook. Use \"Restart server\" to try again.",
+				text: this.starting
+					? "Starting marimo..."
+					: 'marimo isn\'t running for this notebook. Use "Restart server" to try again.',
 			});
 			return;
 		}
@@ -755,7 +955,7 @@ class MarimoView extends ItemView {
 
 	async onClose() {
 		this.iframe = null;
-		if (this.filePath) this.plugin.releaseServer(this.filePath);
+		if (this.file) this.plugin.releaseServer(this.file.path, this.mode, this);
 	}
 }
 
@@ -909,6 +1109,45 @@ class MarimoNotebooksSettingTab extends PluginSettingTab {
 						this.plugin.settings.pythonPath = value.trim();
 						await this.plugin.saveSettings();
 					})
+			);
+
+		new Setting(containerEl)
+			.setName("Default view")
+			.setDesc(
+				"How a notebook opens: the marimo editor, or the app view, which serves it like a website with the code hidden."
+			)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("edit", "Editor")
+					.addOption("run", "App")
+					.setValue(this.plugin.settings.defaultMode)
+					.onChange(async (value) => {
+						if (!isMarimoMode(value)) return;
+						this.plugin.settings.defaultMode = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Show code in the app view")
+			.setDesc("Pass --include-code so readers can expand the Python behind each cell.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.includeCodeInApp).onChange(async (value) => {
+					this.plugin.settings.includeCodeInApp = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Open .py files in the vault")
+			.setDesc(
+				"Registers the .py extension so Python files show up in the file explorer and open in marimo. Takes effect after Obsidian is restarted or the plugin is reloaded."
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.registerPyExtension).onChange(async (value) => {
+					this.plugin.settings.registerPyExtension = value;
+					await this.plugin.saveSettings();
+				})
 			);
 
 		new Setting(containerEl)
