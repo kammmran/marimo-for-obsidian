@@ -1,7 +1,7 @@
 {
-  "name": "marimo4obs",
-  "version": "0.3.0",
-  "description": "Unofficial Obsidian integration for marimo Python notebooks",
+  "name": "marimo-notebooks",
+  "version": "0.4.0",
+  "description": "Unofficial Obsidian plugin for editing and running marimo Python notebooks",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",

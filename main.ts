@@ -16,9 +16,9 @@ import { existsSync } from "fs";
 import { delimiter, join } from "path";
 import { homedir } from "os";
 
-const VIEW_TYPE_MARIMO = "marimo4obs-view";
+const VIEW_TYPE_MARIMO = "marimo-notebooks-view";
 
-interface marimoSettings {
+interface MarimoNotebooksSettings {
 	marimoPath: string;
 	pythonPath: string;
 	extraArgs: string;
@@ -27,7 +27,7 @@ interface marimoSettings {
 	startupTimeoutSeconds: number;
 }
 
-const DEFAULT_SETTINGS: marimoSettings = {
+const DEFAULT_SETTINGS: MarimoNotebooksSettings = {
 	marimoPath: "",
 	pythonPath: "",
 	extraArgs: "",
@@ -119,8 +119,8 @@ function loginShellPath(): Promise<string | null> {
 	});
 }
 
-export default class marimoPlugin extends Plugin {
-	settings!: marimoSettings;
+export default class MarimoNotebooksPlugin extends Plugin {
+	settings!: MarimoNotebooksSettings;
 	servers: Map<string, RunningServer> = new Map();
 	/** PATH used for every spawned process; widened on load. */
 	private searchPath: string = process.env.PATH || "";
@@ -185,7 +185,7 @@ export default class marimoPlugin extends Plugin {
 			new NewNotebookModal(this.app, (name) => void this.createNewNotebook(name)).open();
 		});
 
-		this.addSettingTab(new marimoSettingTab(this.app, this));
+		this.addSettingTab(new MarimoNotebooksSettingTab(this.app, this));
 	}
 
 	onunload() {
@@ -369,7 +369,7 @@ export default class marimoPlugin extends Plugin {
 		const python = this.findPython();
 		if (!python) {
 			new Notice(
-				"Couldn't find Python. Install Python 3, then set its full path in Marimo4Obs settings (run \"Diagnose marimo setup\" for details).",
+				"Couldn't find Python. Install Python 3, then set its full path in Marimo Notebooks settings (run \"Diagnose marimo setup\" for details).",
 				12000
 			);
 			return false;
@@ -415,7 +415,7 @@ export default class marimoPlugin extends Plugin {
 					new Notice("marimo installed successfully.");
 					resolve(true);
 				} else {
-					console.error("[Marimo4Obs] pip install failed:\n" + output);
+					console.error("[Marimo Notebooks] pip install failed:\n" + output);
 					new ErrorModal(
 						this.app,
 						"Installing marimo failed",
@@ -439,7 +439,7 @@ export default class marimoPlugin extends Plugin {
 				notice.hide();
 				const message = e instanceof Error ? e.message : String(e);
 				const log = this.startupLog.get(file.path) || "";
-				console.error("[Marimo4Obs] " + message + "\n" + log);
+				console.error("[Marimo Notebooks] " + message + "\n" + log);
 				new ErrorModal(this.app, "Couldn't start marimo", message, log).open();
 				return;
 			}
@@ -551,7 +551,7 @@ export default class marimoPlugin extends Plugin {
 			this.killProcess(proc);
 			const detail = log.trim();
 			const hint = /command not found|No such file|not recognized/i.test(detail)
-				? ` Marimo4Obs used "${launcher.label}".`
+				? ` Marimo Notebooks used "${launcher.label}".`
 				: "";
 			throw new Error((e instanceof Error ? e.message : String(e)) + hint);
 		}
@@ -643,7 +643,7 @@ export default class marimoPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		const saved = (await this.loadData()) as Partial<marimoSettings> | null;
+		const saved = (await this.loadData()) as Partial<MarimoNotebooksSettings> | null;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
 		// Older versions stored literal defaults; treat them as "auto-detect".
 		if (this.settings.marimoPath === "marimo") this.settings.marimoPath = "";
@@ -657,12 +657,12 @@ export default class marimoPlugin extends Plugin {
 }
 
 class MarimoView extends ItemView {
-	plugin: marimoPlugin;
+	plugin: MarimoNotebooksPlugin;
 	filePath = "";
 	url = "";
 	private iframe: HTMLIFrameElement | null = null;
 
-	constructor(leaf: WorkspaceLeaf, plugin: marimoPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: MarimoNotebooksPlugin) {
 		super(leaf);
 		this.plugin = plugin;
 		this.navigation = true;
@@ -703,14 +703,14 @@ class MarimoView extends ItemView {
 	render() {
 		const container = this.contentEl;
 		container.empty();
-		container.addClass("marimo4obs-view-container");
+		container.addClass("marimo-notebooks-view-container");
 
-		const bar = container.createDiv({ cls: "marimo4obs-toolbar" });
-		bar.createSpan({ cls: "marimo4obs-path", text: this.filePath });
-		const actions = bar.createDiv({ cls: "marimo4obs-actions" });
+		const bar = container.createDiv({ cls: "marimo-notebooks-toolbar" });
+		bar.createSpan({ cls: "marimo-notebooks-path", text: this.filePath });
+		const actions = bar.createDiv({ cls: "marimo-notebooks-actions" });
 
 		const button = (label: string, title: string, onClick: () => void) => {
-			const btn = actions.createEl("button", { text: label, cls: "marimo4obs-btn" });
+			const btn = actions.createEl("button", { text: label, cls: "marimo-notebooks-btn" });
 			btn.setAttribute("aria-label", title);
 			btn.addEventListener("click", onClick);
 			return btn;
@@ -734,14 +734,14 @@ class MarimoView extends ItemView {
 
 		if (!this.url) {
 			container.createDiv({
-				cls: "marimo4obs-empty",
+				cls: "marimo-notebooks-empty",
 				text: "marimo isn't running for this notebook. Use \"Restart server\" to try again.",
 			});
 			return;
 		}
 
 		this.iframe = container.createEl("iframe", {
-			cls: "marimo4obs-iframe",
+			cls: "marimo-notebooks-iframe",
 			attr: {
 				src: this.url,
 				// marimo needs scripts, its own origin (websockets, storage),
@@ -769,7 +769,7 @@ class NewNotebookModal extends Modal {
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.createEl("h3", { text: "New marimo notebook" });
+		this.setTitle("New marimo notebook");
 
 		let value = "Untitled";
 		const submit = () => {
@@ -809,7 +809,7 @@ class ConfirmModal extends Modal {
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.createEl("h3", { text: this.titleText });
+		this.setTitle(this.titleText);
 		contentEl.createEl("p", { text: this.message });
 
 		const buttons = new Setting(contentEl);
@@ -848,11 +848,11 @@ class ErrorModal extends Modal {
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.createEl("h3", { text: this.titleText });
+		this.setTitle(this.titleText);
 		contentEl.createEl("p", { text: this.message });
 		const detail = this.detail.trim();
 		if (detail) {
-			contentEl.createEl("pre", { cls: "marimo4obs-log", text: detail });
+			contentEl.createEl("pre", { cls: "marimo-notebooks-log", text: detail });
 			new Setting(contentEl).addButton((btn) =>
 				btn.setButtonText("Copy details").onClick(() => {
 					void navigator.clipboard.writeText(detail);
@@ -867,8 +867,8 @@ class ErrorModal extends Modal {
 	}
 }
 
-class marimoSettingTab extends PluginSettingTab {
-	constructor(app: App, private plugin: marimoPlugin) {
+class MarimoNotebooksSettingTab extends PluginSettingTab {
+	constructor(app: App, private plugin: MarimoNotebooksPlugin) {
 		super(app, plugin);
 	}
 
@@ -877,7 +877,7 @@ class marimoSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		containerEl.createEl("p", {
-			text: "Marimo4Obs is an unofficial, community-built integration and is not affiliated with or endorsed by the marimo project.",
+			text: "Marimo Notebooks is an unofficial, community-built integration and is not affiliated with or endorsed by the marimo project.",
 			cls: "setting-item-description",
 		});
 

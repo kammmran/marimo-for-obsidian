@@ -1,4 +1,4 @@
-.marimo4obs-view-container {
+.marimo-notebooks-view-container {
 	padding: 0;
 	height: 100%;
 	width: 100%;
@@ -6,7 +6,7 @@
 	flex-direction: column;
 }
 
-.marimo4obs-iframe {
+.marimo-notebooks-iframe {
 	display: block;
 	width: 100%;
 	flex: 1 1 auto;
@@ -14,7 +14,7 @@
 	border: none;
 }
 
-.marimo4obs-toolbar {
+.marimo-notebooks-toolbar {
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-2);
@@ -24,7 +24,7 @@
 	flex: 0 0 auto;
 }
 
-.marimo4obs-path {
+.marimo-notebooks-path {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 	overflow: hidden;
@@ -32,25 +32,25 @@
 	white-space: nowrap;
 }
 
-.marimo4obs-actions {
+.marimo-notebooks-actions {
 	margin-left: auto;
 	display: flex;
 	gap: var(--size-4-1);
 	flex: 0 0 auto;
 }
 
-.marimo4obs-btn {
+.marimo-notebooks-btn {
 	font-size: var(--font-ui-smaller);
 	padding: 2px 8px;
 	cursor: pointer;
 }
 
-.marimo4obs-empty {
+.marimo-notebooks-empty {
 	padding: var(--size-4-4);
 	color: var(--text-muted);
 }
 
-.marimo4obs-log {
+.marimo-notebooks-log {
 	max-height: 300px;
 	overflow: auto;
 	white-space: pre-wrap;

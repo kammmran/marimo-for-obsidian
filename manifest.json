@@ -1,10 +1,10 @@
 {
-  "id": "marimo4obs",
-  "name": "Marimo4Obs",
-  "version": "0.3.0",
+  "id": "marimo-notebooks",
+  "name": "Marimo Notebooks",
+  "version": "0.4.0",
   "minAppVersion": "1.7.2",
   "description": "Unofficial integration for editing and running marimo reactive Python notebooks. Not affiliated with or endorsed by the marimo project.",
-  "author": "you",
-  "authorUrl": "",
+  "author": "kammmran",
+  "authorUrl": "https://github.com/kammmran",
   "isDesktopOnly": true
 }

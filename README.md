@@ -1,4 +1,4 @@
-# Marimo4Obs
+# Marimo Notebooks
 
 > **Unofficial.** This is a community-built integration and is not
 > affiliated with, endorsed by, or supported by the
@@ -25,8 +25,8 @@ notes.
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the
    [latest release](https://github.com/kammmran/marimo-for-obsidian/releases).
-2. Copy them into `<your vault>/.obsidian/plugins/marimo4obs/`.
-3. Reload Obsidian and enable "Marimo4Obs" under Settings → Community plugins.
+2. Copy them into `<your vault>/.obsidian/plugins/marimo-notebooks/`.
+3. Reload Obsidian and enable "Marimo Notebooks" under Settings → Community plugins.
 
 ### From source
 
@@ -36,7 +36,7 @@ npm run build
 ```
 
 Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's
-`.obsidian/plugins/marimo4obs/` folder as above.
+`.obsidian/plugins/marimo-notebooks/` folder as above.
 
 ## Usage
 
