@@ -1,6 +1,6 @@
 {
   "name": "marimo4obs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unofficial Obsidian integration for marimo Python notebooks",
   "main": "main.js",
   "scripts": {

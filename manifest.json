@@ -1,7 +1,7 @@
 {
   "id": "marimo4obs",
   "name": "Marimo4Obs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.4.0",
   "description": "Unofficial integration for editing and running marimo reactive Python notebooks. Not affiliated with or endorsed by the marimo project.",
   "author": "you",
