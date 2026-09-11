@@ -58,6 +58,16 @@ Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's
   install the `marimo` package.
 - **Extra CLI arguments** — extra flags passed to `marimo edit`.
 
+## Security notes
+
+This plugin executes local shell commands (`child_process`) to launch the
+`marimo` CLI and, when needed, `python -m pip install marimo`. This is
+required for its core function — marimo notebooks run as a local Python
+process — and no commands are ever sent to or received from the network
+beyond what the marimo/Python processes themselves do on your machine. The
+executable paths used are configurable in plugin settings and default to
+`marimo`/`python3` on your `PATH`.
+
 ## License
 
 [MIT](LICENSE)
