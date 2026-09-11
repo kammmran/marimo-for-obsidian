@@ -10,7 +10,12 @@ import {
 	TFile,
 	WorkspaceLeaf,
 } from "obsidian";
-import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
+import {
+	ChildProcessWithoutNullStreams,
+	SpawnSyncReturns,
+	spawn,
+	spawnSync,
+} from "child_process";
 
 const VIEW_TYPE_MARIMO = "marimo4obs-view";
 
@@ -73,7 +78,7 @@ export default class marimoPlugin extends Plugin {
 				const file = this.app.workspace.getActiveFile();
 				const isPy = !!file && file.extension === "py";
 				if (checking) return isPy;
-				if (file) this.openMarimoNotebook(file);
+				if (file) void this.openMarimoNotebook(file);
 				return true;
 			},
 		});
@@ -91,14 +96,14 @@ export default class marimoPlugin extends Plugin {
 		);
 
 		this.addRibbonIcon("play-circle", "New marimo notebook", () => {
-			new NewNotebookModal(this.app, (name) => this.createNewNotebook(name)).open();
+			new NewNotebookModal(this.app, (name) => void this.createNewNotebook(name)).open();
 		});
 
 		this.addCommand({
 			id: "new-marimo-notebook",
 			name: "New marimo notebook",
 			callback: () => {
-				new NewNotebookModal(this.app, (name) => this.createNewNotebook(name)).open();
+				new NewNotebookModal(this.app, (name) => void this.createNewNotebook(name)).open();
 			},
 		});
 
@@ -140,9 +145,11 @@ export default class marimoPlugin extends Plugin {
 
 	/** Checks that python + the marimo package are available, offering to `pip install marimo` if not. */
 	private async ensurePythonAndMarimo(): Promise<boolean> {
-		const python = spawnSync(this.settings.pythonPath, ["--version"], {
-			shell: true,
-		});
+		const python: SpawnSyncReturns<Buffer> = spawnSync(
+			this.settings.pythonPath,
+			["--version"],
+			{ shell: true }
+		);
 		if (python.error || python.status !== 0) {
 			new Notice(
 				`Python not found at "${this.settings.pythonPath}". Install Python from python.org, then set the path in marimo settings.`,
@@ -151,7 +158,7 @@ export default class marimoPlugin extends Plugin {
 			return false;
 		}
 
-		const marimoCheck = spawnSync(
+		const marimoCheck: SpawnSyncReturns<Buffer> = spawnSync(
 			this.settings.pythonPath,
 			["-c", "import marimo"],
 			{ shell: true }
@@ -173,24 +180,24 @@ export default class marimoPlugin extends Plugin {
 
 	private installMarimo(): Promise<boolean> {
 		const notice = new Notice("Installing marimo...", 0);
-		return new Promise((resolve) => {
-			const proc = spawn(
+		return new Promise<boolean>((resolve) => {
+			const proc: ChildProcessWithoutNullStreams = spawn(
 				this.settings.pythonPath,
 				["-m", "pip", "install", "--upgrade", "marimo"],
 				{ shell: true }
 			);
 
 			let output = "";
-			proc.stdout.on("data", (chunk) => (output += chunk.toString()));
-			proc.stderr.on("data", (chunk) => (output += chunk.toString()));
+			proc.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+			proc.stderr.on("data", (chunk: Buffer) => (output += chunk.toString()));
 
-			proc.on("error", (err) => {
+			proc.on("error", (err: Error) => {
 				notice.hide();
 				new Notice(`Failed to run pip: ${err.message}`);
 				resolve(false);
 			});
 
-			proc.on("exit", (code) => {
+			proc.on("exit", (code: number | null) => {
 				notice.hide();
 				if (code === 0) {
 					new Notice("marimo installed successfully.");
@@ -226,7 +233,7 @@ export default class marimoPlugin extends Plugin {
 			active: true,
 			state: { filePath: file.path, url: server.url },
 		});
-		this.app.workspace.revealLeaf(leaf);
+		await this.app.workspace.revealLeaf(leaf);
 	}
 
 	private startServer(file: TFile): Promise<RunningServer> {
@@ -242,10 +249,12 @@ export default class marimoPlugin extends Plugin {
 			...this.settings.extraArgs.split(" ").filter(Boolean),
 		];
 
-		return new Promise((resolve, reject) => {
-			const proc = spawn(this.settings.marimoPath, args, {
-				shell: true,
-			});
+		return new Promise<RunningServer>((resolve, reject) => {
+			const proc: ChildProcessWithoutNullStreams = spawn(
+				this.settings.marimoPath,
+				args,
+				{ shell: true }
+			);
 
 			let resolved = false;
 			const urlRegex = /https?:\/\/[^\s]+/;
@@ -269,11 +278,11 @@ export default class marimoPlugin extends Plugin {
 			proc.stdout.on("data", onData);
 			proc.stderr.on("data", onData);
 
-			proc.on("error", (err) => {
-				if (!resolved) reject(err);
+			proc.on("error", (err: Error) => {
+				if (!resolved) reject(err instanceof Error ? err : new Error(String(err)));
 			});
 
-			proc.on("exit", (code) => {
+			proc.on("exit", (code: number | null) => {
 				this.servers.delete(file.path);
 				if (!resolved) {
 					reject(
@@ -284,7 +293,7 @@ export default class marimoPlugin extends Plugin {
 				}
 			});
 
-			setTimeout(() => {
+			window.setTimeout(() => {
 				if (!resolved) {
 					proc.kill();
 					reject(new Error("Timed out waiting for marimo to start."));
@@ -302,7 +311,8 @@ export default class marimoPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const saved = (await this.loadData()) as Partial<marimoSettings> | null;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
 	}
 
 	async saveSettings() {
@@ -349,15 +359,13 @@ class MarimoView extends ItemView {
 		container.addClass("marimo4obs-view-container");
 
 		this.iframe = container.createEl("iframe", {
+			cls: "marimo4obs-iframe",
 			attr: {
 				src: this.url,
 				sandbox:
 					"allow-scripts allow-same-origin allow-forms allow-popups allow-modals",
 			},
 		});
-		this.iframe.style.width = "100%";
-		this.iframe.style.height = "100%";
-		this.iframe.style.border = "none";
 	}
 
 	async onClose() {

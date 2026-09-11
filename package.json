@@ -1,6 +1,6 @@
 {
   "name": "marimo4obs",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Unofficial Obsidian integration for marimo Python notebooks",
   "main": "main.js",
   "scripts": {
@@ -12,7 +12,6 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.11.5",
-    "builtin-modules": "^3.3.0",
     "esbuild": "^0.19.11",
     "obsidian": "^1.5.7",
     "tslib": "^2.6.2",
