@@ -1,6 +1,6 @@
 {
   "name": "marimo-notebooks",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Unofficial Obsidian plugin for editing and running marimo Python notebooks",
   "main": "main.js",
   "scripts": {
