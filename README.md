@@ -6,10 +6,14 @@
 
 Edit and run marimo reactive Python notebooks from inside your Obsidian vault.
 
-marimo notebooks are plain `.py` files. This plugin launches a local marimo
-server for the notebook you open and embeds its editor directly in a pane, so
-you can create, edit, and run Python notebooks alongside the rest of your
-notes.
+marimo notebooks are plain `.py` files. Obsidian normally only opens `.md`
+files and hides everything else, so this plugin registers the `.py` extension:
+Python notebooks appear in the file explorer and clicking one opens it in a
+pane backed by a local marimo server. Each notebook can be shown two ways:
+
+- **Editor** (`marimo edit`) — the full reactive notebook editor.
+- **App** (`marimo run`) — the notebook served as an app, the way a published
+  marimo notebook looks on the web: outputs and widgets only, no code.
 
 ## Requirements
 
@@ -44,15 +48,17 @@ Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's
   notebook** command) to create a new notebook. Give it a name and the
   plugin creates a `.py` file with a minimal marimo notebook template, then
   opens it.
-- To open an existing marimo notebook, right-click a `.py` file and choose
-  **Open in marimo**, or run **Open current notebook in marimo** while it's
-  the active file.
-- Each open notebook runs its own local marimo server (`marimo edit`), bound
-  to `127.0.0.1` on a free port chosen by the plugin, and embedded in the
-  pane. The server is stopped when you close its pane (configurable).
-- The pane toolbar has **Reload**, **Restart server**, and **Open in
-  browser**. Reopening a notebook from a restored workspace starts a fresh
-  server automatically.
+- Click any `.py` file in the file explorer to open it in marimo, or
+  right-click it and choose **Open in marimo editor** / **Open as marimo
+  app**. The same two actions are available as commands for the active file,
+  and **Toggle between marimo editor and app** switches an open pane.
+- The pane toolbar starts with an **Edit** / **App** switch, followed by
+  **Reload**, **Restart server**, and **Open in browser**.
+- Each open notebook runs its own local marimo server, bound to `127.0.0.1`
+  on a free port chosen by the plugin, and embedded in the pane. Editor and
+  app mode use separate servers. A server is stopped when its last pane
+  closes (configurable), and a notebook reopened from a restored workspace
+  starts a fresh server automatically.
 
 ## Settings
 
@@ -60,13 +66,20 @@ Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's
   (e.g. `/path/to/venv/bin/marimo`) to pin a specific virtualenv.
 - **Python executable path** — leave empty to auto-detect. Used to run marimo
   as a module (`python -m marimo`) and to install it.
+- **Default view** — whether notebooks open in the editor or as an app.
+- **Show code in the app view** — passes `--include-code` to `marimo run` so
+  readers can expand the Python behind each cell.
+- **Open .py files in the vault** — registers the `.py` extension so Python
+  files show up in the file explorer and open in marimo. Turn it off if
+  another plugin handles `.py`; the commands keep working either way.
+  Changing it takes effect after a reload.
 - **Reload on external edits** — passes `--watch` so marimo reloads changes
   made in Obsidian's own editor. Off by default, because marimo warns it can
   interfere with its auto-save.
 - **Keep servers running when a pane closes** — reopening is then instant, at
   the cost of leaving the Python process alive.
 - **Startup timeout** — how long to wait for the server to become ready.
-- **Extra CLI arguments** — extra flags passed to `marimo edit`.
+- **Extra CLI arguments** — extra flags passed to `marimo edit` / `marimo run`.
 
 ## Troubleshooting
 
