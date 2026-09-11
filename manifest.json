@@ -3,7 +3,7 @@
   "name": "marimo (marimo notebooks)",
   "version": "0.1.0",
   "minAppVersion": "1.4.0",
-  "description": "Edit and run marimo reactive Python notebooks inside Obsidian.",
+  "description": "Edit and run marimo reactive Python notebooks.",
   "author": "you",
   "authorUrl": "",
   "isDesktopOnly": true
