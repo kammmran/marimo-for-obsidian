@@ -1,0 +1,9 @@
+.marimo-view-container {
+	padding: 0;
+	height: 100%;
+	width: 100%;
+}
+
+.marimo-view-container iframe {
+	display: block;
+}
