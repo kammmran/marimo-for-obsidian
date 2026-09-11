@@ -12,7 +12,7 @@ import {
 } from "obsidian";
 import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
 
-const VIEW_TYPE_MARIMO = "marimo-view";
+const VIEW_TYPE_MARIMO = "marimo4obs-view";
 
 interface marimoSettings {
 	marimoPath: string;
@@ -346,7 +346,7 @@ class MarimoView extends ItemView {
 	render() {
 		const container = this.contentEl;
 		container.empty();
-		container.addClass("marimo-view-container");
+		container.addClass("marimo4obs-view-container");
 
 		this.iframe = container.createEl("iframe", {
 			attr: {
@@ -461,6 +461,11 @@ class marimoSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+
+		containerEl.createEl("p", {
+			text: "Marimo4Obs is an unofficial, community-built integration and is not affiliated with or endorsed by the marimo project.",
+			cls: "setting-item-description",
+		});
 
 		new Setting(containerEl)
 			.setName("marimo executable path")

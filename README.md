@@ -1,6 +1,10 @@
-# marimo for Obsidian
+# Marimo4Obs
 
-Edit and run [marimo](https://github.com/marimo-team/marimo) reactive Python notebooks from inside your vault.
+> **Unofficial.** This is a community-built integration and is not
+> affiliated with, endorsed by, or supported by the
+> [marimo](https://github.com/marimo-team/marimo) project.
+
+Edit and run marimo reactive Python notebooks from inside your Obsidian vault.
 
 marimo notebooks are plain `.py` files. This plugin launches a local marimo
 server for the notebook you open and embeds its editor directly in a pane, so
@@ -21,8 +25,8 @@ notes.
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the
    [latest release](https://github.com/kammmran/marimo-for-obsidian/releases).
-2. Copy them into `<your vault>/.obsidian/plugins/marimo/`.
-3. Reload Obsidian and enable "marimo" under Settings → Community plugins.
+2. Copy them into `<your vault>/.obsidian/plugins/marimo4obs/`.
+3. Reload Obsidian and enable "Marimo4Obs" under Settings → Community plugins.
 
 ### From source
 
@@ -32,7 +36,7 @@ npm run build
 ```
 
 Then copy `main.js`, `manifest.json`, and `styles.css` into your vault's
-`.obsidian/plugins/marimo/` folder as above.
+`.obsidian/plugins/marimo4obs/` folder as above.
 
 ## Usage
 

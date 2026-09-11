@@ -1,9 +1,9 @@
-.marimo-view-container {
+.marimo4obs-view-container {
 	padding: 0;
 	height: 100%;
 	width: 100%;
 }
 
-.marimo-view-container iframe {
+.marimo4obs-view-container iframe {
 	display: block;
 }
